@@ -2,6 +2,7 @@ package gitsqlite
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 
@@ -94,4 +95,34 @@ func (e *emptyReader) Read(p []byte) (n int, err error) {
 	}
 	e.once = true
 	return 0, nil
+}
+
+func chunks(p []byte, size int) (pcs [][]byte, err error) {
+	if size < 1 {
+		return nil, fmt.Errorf("invalid chunk size: %d", size)
+	}
+	for len(p) > size {
+		pc := append(make([]byte, 0, size), p[:size]...)
+		pcs = append(pcs, pc)
+		p = p[size:]
+	}
+	if len(p) > 0 {
+		pc := append(make([]byte, 0, size), p...)
+		pcs = append(pcs, pc)
+	}
+	return pcs, nil
+}
+
+func chunkReader(r io.Reader, size int) (rd func([]byte) ([]byte, error), err error) {
+	if size < 1 {
+		return nil, fmt.Errorf("invalid chunk size: %d", size)
+	}
+
+	return func(dest []byte) ([]byte, error) {
+		p, err := ioutil.ReadAll(io.LimitReader(r, int64(size)))
+		if len(p) == 0 && err == nil {
+			return nil, io.EOF
+		}
+		return p, err
+	}, nil
 }

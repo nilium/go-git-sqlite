@@ -1,6 +1,8 @@
 package gitsqlite
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +11,21 @@ import (
 	"crawshaw.io/sqlite"
 	"gopkg.in/src-d/go-git.v4/plumbing"
 )
+
+type Checksum []byte
+
+func (c Checksum) String() string {
+	return hex.EncodeToString(c)
+}
+
+const (
+	ChecksumSize = sha256.Size
+)
+
+func checksum(p []byte) Checksum {
+	sum := sha256.Sum256(p)
+	return Checksum(sum[:])
+}
 
 type rowFunc func(*sqlite.Stmt) error
 
@@ -40,6 +57,14 @@ func scan(stmt *sqlite.Stmt, col int, dest interface{}) (err error) {
 			return fmt.Errorf("scanned hash returned %d bytes, expected %d", n, len(*out))
 		}
 		stmt.ColumnBytes(col, (*out)[:])
+	case *Checksum:
+		n := stmt.ColumnLen(col)
+		if n != ChecksumSize {
+			return fmt.Errorf("invalid checksum size %d: must be %d", n, ChecksumSize)
+		}
+		sum := make(Checksum, ChecksumSize)
+		stmt.ColumnBytes(col, *out)
+		*out = sum
 	case *plumbing.ObjectType:
 		c := stmt.ColumnText(col)
 		typ, err := plumbing.ParseObjectType(c)
@@ -78,6 +103,8 @@ func bind(stmt *sqlite.Stmt, param int, value interface{}) error {
 			return fmt.Errorf("error reading data for parameter %d: %w", param, err)
 		}
 		value = p
+	case Checksum:
+		value = []byte(v)
 	case plumbing.Hash:
 		value = []byte(v[:])
 	case plumbing.ObjectType:
